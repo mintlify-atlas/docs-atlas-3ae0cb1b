@@ -1,0 +1,145 @@
+---
+title: "How matching works"
+description: "Three-phase entity matching: exact ID, structural hash, and fuzzy similarity"
+---
+
+When `sem diff` compares two versions of a file, it does not compare lines. It compares entities — functions, classes, methods, types. To do that accurately, it needs to decide which entity in the "before" snapshot corresponds to which entity in the "after" snapshot. That is the matching problem.
+
+sem solves it in three phases, applied in order. Once an entity is matched in an earlier phase, it is not re-examined in later phases.
+
+## The three phases
+
+<Steps>
+  <Step title="Exact ID match">
+    Every entity has an ID derived from its file path, type, and name. If the same ID exists in both the before and after snapshots, those two entities are matched. sem then compares their content to decide whether the entity is `modified` or `unchanged`.
+
+    An exact ID match means the entity stayed in the same file with the same name. It may have changed internally — that is what `modified` captures.
+  </Step>
+
+  <Step title="Structural hash match">
+    For entities that did not match by ID, sem computes a structural hash of each entity's AST. The structural hash ignores whitespace, comments, and formatting — it captures only the logical structure of the code.
+
+    If two unmatched entities share the same structural hash, they are treated as the same entity that was **renamed or moved**. The change type is `renamed` (same file, different name) or `moved` (different file).
+
+    This phase catches refactors that a line diff would report as a delete-plus-add: moving a function to a different file, renaming a function without changing its body, or reformatting a function without touching its logic.
+  </Step>
+
+  <Step title="Fuzzy similarity">
+    For entities still unmatched after the first two phases, sem computes token-level similarity between each remaining before-entity and each remaining after-entity. If any pair exceeds **80% token overlap**, they are matched as a probable rename.
+
+    This phase catches cases where both the name and the body changed slightly — a partial rename where the structural hash no longer matches but the entity is clearly the same logical unit.
+
+    Entities that remain unmatched after all three phases are classified as `added` (present only in after) or `deleted` (present only in before).
+  </Step>
+</Steps>
+
+## Entity identity
+
+Each entity has an ID that uniquely identifies it within a repository. The ID is constructed from three components:
+
+```
+filePath::entityType::entityName
+```
+
+For example:
+
+```
+src/auth.ts::function::validateToken
+config/database.yml::property::production.pool_size
+```
+
+For nested entities — a method inside a class — the parent's name replaces the entity type:
+
+```
+src/auth.ts::AuthService::validateToken
+```
+
+This is produced by the `build_entity_id` function in `sem-core`:
+
+```rust
+pub fn build_entity_id(
+    file_path: &str,
+    entity_type: &str,
+    name: &str,
+    parent_id: Option<&str>,
+) -> String {
+    match parent_id {
+        Some(pid) => format!("{file_path}::{pid}::{name}"),
+        None => format!("{file_path}::{entity_type}::{name}"),
+    }
+}
+```
+
+The entity ID is what appears as `entityId` in JSON output and is used as the stable identity across diff operations.
+
+## Structural hashing
+
+The structural hash is an AST-normalized hash computed by tree-sitter. It strips comments and normalizes whitespace before hashing, so two entities that are textually different but logically identical produce the same hash.
+
+This is conceptually inspired by Unison's content-addressed model: the hash represents the meaning of the code, not its formatting.
+
+<AccordionGroup>
+  <Accordion title="What the structural hash ignores">
+    - Whitespace and indentation changes
+    - Comments (single-line, multi-line, doc comments)
+    - Code formatting (line breaks within expressions, trailing commas)
+
+    Any change that leaves the structural hash unchanged is classified as **cosmetic**.
+  </Accordion>
+
+  <Accordion title="What the structural hash captures">
+    - The names of identifiers
+    - The structure of control flow (if/else, loops, match expressions)
+    - Function signatures (parameter names, types, return types)
+    - The order and content of statements
+
+    Any change that alters the structural hash is classified as **structural**.
+  </Accordion>
+</AccordionGroup>
+
+The `structural_change` field on a `SemanticChange` reflects this distinction:
+
+```rust
+/// Whether the AST structure changed (true) or only formatting/comments (false).
+/// None when structural hash is unavailable.
+pub structural_change: Option<bool>,
+```
+
+## Change types
+
+The `ChangeType` enum in `sem-core` defines all possible outcomes of the matching process:
+
+```rust
+pub enum ChangeType {
+    Added,
+    Modified,
+    Deleted,
+    Moved,
+    Renamed,
+}
+```
+
+| Change type | Meaning |
+|-------------|---------|
+| `added` | Entity exists in after, not in before |
+| `modified` | Same ID in before and after, content differs |
+| `deleted` | Entity exists in before, not in after |
+| `renamed` | Same structural hash, different name, same file |
+| `moved` | Same structural hash, different file |
+
+A `modified` entity with `structural_change: false` is a cosmetic-only change — whitespace, comments, formatting. The entity's logic is unchanged.
+
+## Why this matters
+
+A plain line diff has no concept of entity identity. If you rename a function and move it to a different file, a line diff reports the old file lost lines and the new file gained lines. There is no signal that these are the same thing.
+
+sem's three-phase matching means:
+
+- **Renames are detected**, not reported as delete + add
+- **Moves across files are detected**, not reported as delete + add
+- **Cosmetic-only changes are labeled** so reviewers know no logic changed
+- **Entity IDs are stable** across reformatting commits, making blame and history accurate
+
+<Note>
+  The 80% threshold for fuzzy matching is a design choice that balances false positives (matching unrelated entities) against false negatives (failing to match genuine renames with partial body changes). It is not currently configurable.
+</Note>

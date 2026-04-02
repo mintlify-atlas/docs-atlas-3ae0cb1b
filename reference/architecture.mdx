@@ -1,0 +1,153 @@
+---
+title: "Architecture"
+description: "How sem is built: tree-sitter, git2, rayon, and the plugin system"
+---
+
+sem is a Cargo workspace with two crates: `sem-core` (the library) and `sem-cli` (the binary). The CLI depends on the library; the library has no knowledge of the CLI.
+
+```
+sem/
+└── crates/
+    ├── sem-core/   # Library: parsing, matching, diffing, graph
+    └── sem-cli/    # Binary: CLI commands, formatters, output
+```
+
+## Core dependencies
+
+Each dependency was chosen to solve a specific performance or correctness problem.
+
+<AccordionGroup>
+  <Accordion title="tree-sitter — code parsing">
+    tree-sitter is used for all code parsing. sem links against tree-sitter grammars compiled as native Rust code, not WASM.
+
+    This is a deliberate choice. The original Node.js implementation loaded tree-sitter grammars as WASM binaries at runtime, which added ~50ms per cold start just for grammar loading. The Rust implementation compiles all 21 grammars directly into the binary — there is no dynamic loading at all.
+
+    The result: parse time is part of the 17ms total work time, not a startup tax paid before any real work begins.
+
+    ```toml
+    tree-sitter = "0.26"
+    # Plus 21 language grammar crates:
+    tree-sitter-typescript = "0.23"
+    tree-sitter-rust = "0.23"
+    # ...
+    ```
+  </Accordion>
+
+  <Accordion title="git2 — Git operations">
+    git2 provides in-process Git operations via libgit2. No shell subprocesses are spawned.
+
+    In the original Node.js implementation, each git operation (fetching file content at a commit, resolving refs) spawned a `git` subprocess. Subprocess spawning on macOS/Linux costs roughly 40ms per call due to fork+exec overhead. A single `sem diff --commit abc1234` needed multiple git operations, making subprocess overhead a significant fraction of total runtime.
+
+    git2 opens the repository once and performs all operations in the same process, eliminating that overhead entirely.
+
+    ```toml
+    git2 = "0.20"
+    ```
+  </Accordion>
+
+  <Accordion title="rayon — parallel file processing">
+    rayon is used to process multiple files in parallel. When a commit touches several files, each file is parsed and its entities extracted concurrently across the thread pool.
+
+    This is what allows a 13-file commit to complete in 19ms rather than scaling linearly with file count.
+
+    ```toml
+    rayon = "1.10"
+    ```
+  </Accordion>
+
+  <Accordion title="xxhash (xxh3) — structural hashing">
+    xxh3 from the `xxhash-rust` crate is used to compute structural hashes. xxh3 is a non-cryptographic hash optimized for speed on modern hardware.
+
+    The structural hash is computed over the normalized AST (whitespace stripped, comments removed). Fast hashing matters here because every entity in every file gets a structural hash computed on every diff operation.
+
+    ```toml
+    xxhash-rust = { version = "0.8", features = ["xxh3"] }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Entity extraction pipeline
+
+Processing a single file goes through four stages:
+
+<Steps>
+  <Step title="Parse">
+    The file content is passed to the appropriate tree-sitter grammar based on file extension. tree-sitter produces a concrete syntax tree (CST) for the file.
+  </Step>
+
+  <Step title="Extract entities">
+    The parser plugin walks the CST and extracts entities at the appropriate scope boundaries. For code files, this means functions, classes, methods, and other top-level declarations. For structured data files, this means keys, sections, and rows.
+
+    Each extracted entity gets an `id`, `content`, `content_hash`, and `structural_hash`.
+  </Step>
+
+  <Step title="Match">
+    The three-phase matching algorithm compares the before-entities and after-entities:
+    1. Exact ID match → `modified` or unchanged
+    2. Structural hash match → `renamed` or `moved`
+    3. Fuzzy token similarity (>80%) → probable rename
+
+    See [How matching works](/reference/how-matching-works) for full details.
+  </Step>
+
+  <Step title="Compute changes">
+    Matched pairs produce `SemanticChange` records with the appropriate `ChangeType`. Unmatched before-entities become `deleted`; unmatched after-entities become `added`.
+
+    The `structural_change` flag is set by comparing structural hashes of matched pairs.
+  </Step>
+</Steps>
+
+## Plugin system
+
+sem uses a plugin architecture for language and format support. There are two plugin types:
+
+**Code plugins** handle programming languages. Each plugin receives the raw source text and returns a list of `SemanticEntity` values. The plugin is responsible for:
+- Selecting the correct tree-sitter grammar
+- Walking the CST to identify entity boundaries
+- Handling scope rules (e.g., not extracting local variables inside function bodies as top-level entities)
+- Populating `entity_type`, `name`, `parent_id`, `start_line`, `end_line`
+
+**Structured data plugins** handle formats like JSON, YAML, TOML, CSV, and Markdown. These do not use tree-sitter. They use format-specific parsers (`serde_json`, `serde_yaml`, `toml`) and produce entities whose names are derived from paths (RFC 6901 JSON pointers, dot-separated YAML keys, heading text for Markdown).
+
+Files with unrecognized extensions fall back to chunk-based diffing, where the file is split into fixed-size chunks and diffed as opaque text blocks.
+
+<Tip>
+  To add support for a new language, you implement a code plugin and register it with the file extension mapping. See [CONTRIBUTING.md](https://github.com/Ataraxy-Labs/sem/blob/main/CONTRIBUTING.md) for a step-by-step guide.
+</Tip>
+
+## Performance
+
+All measurements are wall-clock time on the Rust binary:
+
+| Workload | Time |
+|----------|------|
+| Small commit (1 file) | 5ms |
+| Medium commit (5 files) | 8ms |
+| Large commit (13 files) | 19ms |
+| Range (8 commits, 30 files) | 24ms |
+
+sem is faster than `git diff` for equivalent operations because git2 avoids subprocess overhead and rayon processes files in parallel.
+
+For comparison, the original Node.js implementation of the same algorithm:
+
+| Phase | Node.js cost | Rust cost |
+|-------|-------------|-----------|
+| Runtime startup | ~120ms (V8 init) | ~3ms (binary load) |
+| Module resolution | ~80ms | — |
+| Grammar load | ~50ms (WASM) | — (compiled in) |
+| git operations | ~40ms (subprocess) | ~5ms (git2 repo open) |
+| Parse + match | ~40ms | ~17ms |
+| **Total** | **~260–591ms** | **~5–25ms** |
+
+The Rust binary finishes before Node.js loads its first module.
+
+## CLI dependencies
+
+`sem-cli` depends on `sem-core` plus a small set of CLI-specific crates:
+
+| Dependency | Purpose |
+|------------|---------|
+| `clap` 4 | Argument parsing |
+| `colored` 2 | Terminal color output |
+| `similar` 2 | Inline before/after content diffs (`-v` flag) |
+| `serde_json` 1 | JSON output formatting |

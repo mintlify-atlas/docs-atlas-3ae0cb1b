@@ -1,0 +1,91 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "sem",
+  "projectDescription": "A semantic version control CLI that performs entity-level diff, blame, graph, and impact analysis across 21 languages using tree-sitter.",
+  "theme": "aspen",
+  "primaryColor": "#5B6EF0",
+  "lightColor": null,
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Commands",
+            "pages": [
+              "commands/diff",
+              "commands/blame",
+              "commands/graph",
+              "commands/impact",
+              "commands/log"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/git-integration",
+              "guides/ci-pipelines",
+              "guides/ai-agents",
+              "guides/output-formats"
+            ]
+          },
+          {
+            "group": "Language Support",
+            "pages": [
+              "languages/overview",
+              "languages/adding-a-language"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/how-matching-works",
+              "reference/library-usage",
+              "reference/architecture",
+              "reference/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Entity-level diff showing added, modified, deleted, and renamed functions/classes instead of line-level changes",
+    "21 programming languages supported via native tree-sitter parsers",
+    "Structural hashing to distinguish cosmetic (whitespace/formatting) from real logic changes",
+    "Entity-level blame: who last modified each function, not each line",
+    "Cross-file dependency graph via call/reference analysis",
+    "Transitive impact analysis using BFS through the dependency graph",
+    "JSON output for AI agents and CI pipeline integration",
+    "Stdin mode for non-git usage and streaming file diffs",
+    "Works as a drop-in replacement for git diff"
+  ],
+  "publicApiSurface": [
+    "sem diff",
+    "sem diff --staged",
+    "sem diff --commit <ref>",
+    "sem diff --from <ref> --to <ref>",
+    "sem diff --format json|plain|markdown",
+    "sem diff --stdin --format json",
+    "sem diff --file-exts .py .rs",
+    "sem blame <file>",
+    "sem blame <file> --json",
+    "sem graph",
+    "sem graph --entity <name>",
+    "sem graph --format json",
+    "sem impact <entity>",
+    "sem impact <entity> --json",
+    "sem log <entity>",
+    "sem log <entity> --verbose",
+    "sem-core (Rust library crate)"
+  ]
+}

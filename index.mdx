@@ -1,97 +1,110 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "sem — Semantic Version Control"
+description: "Entity-level diff, blame, graph, and impact analysis for code. Git tracks lines — sem tracks functions, classes, and methods across 21 languages."
 ---
 
-## Setting up
+sem extends Git with entity-level operations. Instead of seeing which lines changed, you see which functions were added, which methods were modified, and which classes were deleted. Built on tree-sitter for accurate parsing across 21 programming languages.
 
-Get your documentation site up and running in minutes.
+```bash
+sem diff
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+┌─ src/auth/login.ts ──────────────────────────────────
+│
+│  ⊕ function  validateToken          [added]
+│  ∆ function  authenticateUser       [modified]
+│  ⊖ function  legacyAuth             [deleted]
+│
+└──────────────────────────────────────────────────────
 
-## Make it yours
+Summary: 1 added, 1 modified, 1 deleted across 1 file
+```
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install via Homebrew, cargo, or Docker. No configuration required.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first semantic diff in under a minute.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Command reference" icon="terminal" href="/commands/diff">
+    Full documentation for `diff`, `blame`, `graph`, `impact`, and `log`.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Language support" icon="code" href="/languages/overview">
+    21 languages with full entity extraction via tree-sitter.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What sem does differently
 
-Everything you need to create world-class documentation.
+Instead of line-level noise, sem gives you entity-level signal:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="Semantic diff" icon="code-compare" href="/commands/diff">
+    Shows which functions and classes changed — not which lines. Detects renames and moves automatically.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Entity blame" icon="user-clock" href="/commands/blame">
+    Who last modified each function, not each line. Understand ownership at the semantic level.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Dependency graph" icon="diagram-project" href="/commands/graph">
+    Cross-file call graph showing what each function depends on and what depends on it.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Impact analysis" icon="circle-radiation" href="/commands/impact">
+    Transitive analysis: if this entity changes, what else breaks? BFS through the dependency graph.
   </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
+## Get started
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Install sem">
+    ```bash
+    brew install sem-cli
+    ```
+    Or grab a binary from [GitHub Releases](https://github.com/yocxy2/sem/releases) or build from source with `cargo install`.
+  </Step>
+  <Step title="Run in any Git repo">
+    ```bash
+    sem diff
+    ```
+    No setup, no config files. Works immediately in any Git repository.
+  </Step>
+  <Step title="Explore other commands">
+    ```bash
+    sem blame src/auth.ts      # who owns each function?
+    sem graph                  # dependency graph
+    sem impact validateToken   # what breaks if this changes?
+    ```
+  </Step>
+</Steps>
+
+## Use with CI and AI agents
+
+sem outputs JSON for easy integration with automated pipelines and AI tools:
+
+```bash
+sem diff --format json
+```
+
+```json
+{
+  "summary": { "fileCount": 2, "added": 1, "modified": 1, "deleted": 1, "total": 3 },
+  "changes": [
+    {
+      "entityId": "src/auth.ts::function::validateToken",
+      "changeType": "added",
+      "entityType": "function",
+      "entityName": "validateToken",
+      "filePath": "src/auth.ts"
+    }
+  ]
+}
+```
+
+<CardGroup cols={2}>
+  <Card title="CI pipelines" icon="gears" href="/guides/ci-pipelines">
+    Add semantic change detection to GitHub Actions and other CI systems.
+  </Card>
+  <Card title="AI agents" icon="robot" href="/guides/ai-agents">
+    Feed structured entity diffs to LLM-based code review and analysis tools.
+  </Card>
+</CardGroup>

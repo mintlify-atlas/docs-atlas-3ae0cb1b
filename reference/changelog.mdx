@@ -1,0 +1,160 @@
+---
+title: "Changelog"
+description: "Release history and changes"
+---
+
+<Note>
+  For the complete release history including binary downloads, see [GitHub Releases](https://github.com/Ataraxy-Labs/sem/releases).
+</Note>
+
+## v0.3.12 — Current
+
+**`fix` Go grouped declaration extraction** `2e6a8f8`
+
+Fixed extraction of Go grouped `var()`, `const()`, and `type()` declarations. Previously only the first declaration in each group was extracted as an entity. Now each individual declaration in a group is extracted separately.
+
+---
+
+**`feat` Svelte support** `7c8c047`
+
+Full Svelte 5 parser plugin via `tree-sitter-htmlx-svelte`. Extracts component blocks (script, style, template elements), Svelte-specific blocks (`each`, `if`, `await`, `key`, `snippet`), special elements (`svelte:component`, `svelte:window`, etc.), and delegates embedded script/style to the code parser for inner entity extraction with line-offset reparenting. Supports compound extensions (`.svelte.ts`, `.svelte.js`) for rune modules.
+
++2,065 lines · 29 tests · 22nd supported format
+
+---
+
+**`feat` Full git diff syntax support** `f2f57ef`
+
+`sem diff` now supports the same positional argument syntax as `git diff`: single ref (`sem diff HEAD~3`), two-dot range (`sem diff main..feature`), three-dot merge-base (`sem diff main...feature`), pathspec filtering (`sem diff -- src/`), and `--cached` as an alias for `--staged`. Also adds `--format plain` to the Rust CLI.
+
++400 lines · 11 files · new `RefToWorking` scope, merge-base resolution, pathspec filtering
+
+---
+
+**`feat` Markdown diff formatting** `30816d4`
+
+New `--format markdown` output for `sem diff`. Renders entity changes as clean markdown tables with status symbols, useful for PR comments and CI pipelines.
+
++200 lines · Rust + TypeScript formatters
+
+---
+
+**`fix` JS/TS scope boundary extraction** `8c10b73`
+
+Fixed entity extraction for JavaScript and TypeScript to respect scope boundaries. Local variables inside function bodies were being extracted as top-level entities. Now only extracts declarations at module/class scope. Important correctness fix for weave merge quality.
+
++300 lines · 7 new tests · `entity_extractor.rs`, `languages.rs`
+
+---
+
+**`feat` Verbose inline content diffs** `7f781d2`
+
+New `sem diff -v` flag shows inline before/after content for each modified entity. Lets you see exactly what changed inside a function without switching to `git diff`.
+
++70 lines · terminal formatter
+
+---
+
+**`feat` ERB parser plugin** `807318b`
+
+New parser for ERB templates (`.erb`) via `tree-sitter-embedded-template`. Extracts blocks, expressions, and code tags as entities. Handles all ERB variants including `<%-` dash directives.
+
++414 lines · 21st language
+
+## v0.3.10
+
+**`feat` Published to crates.io + Homebrew** `070d6d4`
+
+`sem-core` and `sem-cli` are now on crates.io. Install with `brew install sem-cli` or `cargo install sem-cli`.
+
+## v0.3.1
+
+**`feat` `--file-exts` flag for language filtering** `59f40ed`
+
+New `--file-exts` flag on `sem diff`, `sem graph`, and `sem impact`. Scopes analysis to specific languages in multi-language repos. Example: `sem graph --file-exts .py` to build the dependency graph for Python files only. Accepts extensions with or without the leading dot.
+
++63 lines · 4 files · diff, graph, impact commands
+
+---
+
+**`perf` Incremental graph updates** `f1cf19a`
+
+`EntityGraph::update_from_changes()` incrementally updates the dependency graph when files change, instead of rebuilding from scratch. Handles Added, Modified, Deleted, and Renamed files. Re-extracts only changed files, rebuilds symbol table, re-resolves references.
+
++444 lines · 3 files · 4 new tests
+
+---
+
+**`feat` `sem impact`: change impact analysis** `da9f34f`
+
+New `sem impact <entity_name>` command shows transitive dependents — what would break if you changed an entity. Uses BFS over the entity dependency graph. Output grouped by file, with `--json` flag for machine consumption.
+
++177 lines · 4 files · terminal + JSON output
+
+---
+
+**`feat` Structural hash + entity dependency graph** `e6dd39f`
+
+Two major features landed together. **Structural hash** (Unison-inspired): computes an AST-based hash that strips comments and normalizes whitespace. Two entities with the same `structural_hash` are logically identical even if formatting differs. Used for rename detection.
+
+**Entity dependency graph**: two-pass extraction (entities → symbol table → reference edges). Intra-file and cross-file resolution. Forward and reverse dependency lookup. Transitive impact analysis via BFS. New `sem graph` CLI command.
+
++749 lines · 15 files · 14 tests · `structural_hash`, `EntityGraph`, `sem graph`, `sem impact`
+
+<AccordionGroup>
+  <Accordion title="Lesson: two-pass extraction">
+    You can't resolve references in a single pass because forward declarations aren't available yet. Building the full symbol table first (name → entity ID), then resolving references in a second pass, is the same approach compilers use. The first attempt tried single-pass and produced broken edges for every forward reference.
+  </Accordion>
+</AccordionGroup>
+
+## Initial release
+
+**`feat` Initial release** `01edf1f`
+
+First working version. `sem diff` with tree-sitter parsing for TypeScript, JavaScript, Python, Go, Rust. JSON/YAML/TOML/CSV/Markdown support via custom parsers. Three-phase entity matching (exact ID, content hash, fuzzy similarity).
+
+Node.js + TypeScript · tsup build · better-sqlite3 for storage · ~290ms cold start
+
+<AccordionGroup>
+  <Accordion title="Mistake: Node.js startup overhead">
+    The entire runtime — V8 init, module resolution, dynamic imports of tree-sitter WASM binaries — took ~120ms before any real work began. For a CLI tool that should feel instant, this was a problem we didn't think about until we started measuring.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+**`perf` 591ms → 260ms (56% faster)** `fffb38f`
+
+Parallelized git operations. Replaced sequential `simple-git` calls with batched `diff --name-status` + `show`. Lazy-loaded parsers instead of importing all grammars upfront. Added internal benchmarking harness.
+
++705 lines · 32 added, 10 modified, 3 deleted entities across 5 types
+
+<AccordionGroup>
+  <Accordion title="Mistake: optimizing the wrong layer">
+    We spent a week shaving milliseconds off the Node.js implementation — lazy imports, worker threads, caching git objects. Got from 591ms to 260ms, which felt like a win. But 120ms of that was still V8 startup that no amount of application-level optimization could touch. The real fix was switching runtimes entirely.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+**`rewrite` Rust rewrite: 30ms (10x faster)** `ae576ab`
+
+Rewrote `sem diff` as a compiled Rust binary. git2 for in-process git operations (no subprocess spawning), tree-sitter grammars compiled directly into the binary (no WASM, no dynamic loading). Cargo workspace: `sem-core` (library) + `sem-cli` (binary). All 7 parser plugins ported.
+
++3,905 lines · 278 entities · 11 entity types including Rust-specific (struct, impl, trait)
+
+<AccordionGroup>
+  <Accordion title="Lesson: where the time actually goes">
+    Node.js breakdown: ~120ms V8 startup, ~80ms module resolution, ~50ms WASM grammar load, ~40ms git subprocess spawn. Rust breakdown: ~3ms binary load, ~5ms git2 repo open, ~17ms parse + match. The entire Rust binary finishes before Node even loads its first module.
+
+    Building in Node first let us iterate on the algorithm quickly, and the Rust port was straightforward because the architecture was already proven.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+**`docs` Agent accuracy benchmark** `bench`
+
+Proved that AI agents are 2.3x more accurate at answering questions about code changes when given `sem diff` JSON vs raw `git diff` output. Tested with Claude Sonnet 4.5 across 4 question types and 3 commits of varying size.
+
+24 API calls · sem 95.9% avg accuracy vs git 41.5% · +54.4% delta

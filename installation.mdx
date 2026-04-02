@@ -1,0 +1,97 @@
+---
+title: "Installation"
+description: "Install sem via Homebrew, cargo, or Docker"
+---
+
+<Note>
+  No configuration required. `sem` works in any Git repository immediately after installation — no config files, no setup steps.
+</Note>
+
+<Tabs>
+  <Tab title="Homebrew">
+    <Steps>
+      <Step title="Install sem-cli">
+        ```bash
+        brew install sem-cli
+        ```
+      </Step>
+      <Step title="Verify the installation">
+        ```bash
+        sem --version
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Cargo">
+    <Steps>
+      <Step title="Install Rust">
+        Cargo requires a Rust toolchain. If you don't have one, install it from [rustup.rs](https://rustup.rs).
+
+        ```bash
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+        ```
+      </Step>
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/Ataraxy-Labs/sem
+        ```
+      </Step>
+      <Step title="Build and install the binary">
+        ```bash
+        cd sem/crates
+        cargo install --path sem-cli
+        ```
+
+        The binary is installed to `~/.cargo/bin/sem`. Make sure `~/.cargo/bin` is on your `PATH`.
+      </Step>
+      <Step title="Verify the installation">
+        ```bash
+        sem --version
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Docker">
+    <Steps>
+      <Step title="Clone the repository and build the image">
+        ```bash
+        git clone https://github.com/Ataraxy-Labs/sem
+        cd sem
+        docker build -t sem .
+        ```
+
+        The Dockerfile uses a two-stage build: a `rust:1-slim-bookworm` builder stage compiles the binary, and a `debian:bookworm-slim` runtime stage produces a minimal image with `sem` at `/usr/local/bin/sem`.
+      </Step>
+      <Step title="Run sem against your repository">
+        Mount your working directory as `/repo` and pass the sem command and flags as arguments:
+
+        ```bash
+        docker run --rm -it -u "$(id -u):$(id -g)" -v "$(pwd):/repo" sem diff
+        ```
+
+        The `-u` flag preserves your user/group so that file ownership inside the container matches the host.
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Binary">
+    <Steps>
+      <Step title="Download a prebuilt binary">
+        Download the latest release for your platform from [GitHub Releases](https://github.com/Ataraxy-Labs/sem/releases).
+      </Step>
+      <Step title="Make the binary executable and move it to your PATH">
+        ```bash
+        chmod +x sem
+        mv sem /usr/local/bin/sem
+        ```
+      </Step>
+      <Step title="Verify the installation">
+        ```bash
+        sem --version
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>

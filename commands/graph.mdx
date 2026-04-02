@@ -1,0 +1,192 @@
+---
+title: "sem graph"
+description: "Cross-file entity dependency graph showing call relationships"
+---
+
+`sem graph` builds a cross-file entity dependency graph by analyzing call and reference relationships across all supported files in the repository. It shows what each entity depends on (outbound calls) and what depends on it (inbound references).
+
+With `--entity`, the output focuses on a single entity: its direct dependencies, its direct dependents, and the full transitive impact set computed via BFS through the dependency graph.
+
+## Usage
+
+<CodeGroup>
+
+```bash Full graph summary (all files)
+sem graph
+```
+
+```bash Focus on a specific entity
+sem graph --entity validateToken
+```
+
+```bash Filter by file extension
+sem graph --file-exts .py
+```
+
+```bash Analyze specific files only
+sem graph src/auth.ts src/utils.ts
+```
+
+```bash JSON output
+sem graph --format json
+```
+
+```bash Entity focus as JSON
+sem graph --entity validateToken --format json
+```
+
+</CodeGroup>
+
+## Flags
+
+<ParamField path="files" type="string[]">
+  Positional list of specific files to include in the graph. When omitted, sem scans all supported files in the repository, excluding hidden directories, `node_modules`, `target`, `__pycache__`, and `venv`.
+
+  ```bash
+  sem graph src/auth.ts src/middleware.ts
+  ```
+</ParamField>
+
+<ParamField path="--entity" type="string">
+  Focus the output on a specific entity by name. Shows that entity's direct dependencies (what it calls), direct dependents (what calls it), and the full transitive impact set.
+
+  ```bash
+  sem graph --entity validateToken
+  sem graph --entity AuthService
+  ```
+</ParamField>
+
+<ParamField path="--format" type="string" default="terminal">
+  Output format. Accepted values:
+
+  | Value | Description |
+  |-------|-------------|
+  | `terminal` | Colored output for humans (default) |
+  | `json` | Structured JSON for agents and CI |
+</ParamField>
+
+<ParamField path="--file-exts" type="string[]">
+  Restrict graph analysis to files with specific extensions. Pass one or more extensions with or without the leading dot.
+
+  ```bash
+  sem graph --file-exts .py
+  sem graph --file-exts .ts .tsx
+  ```
+</ParamField>
+
+## Terminal output
+
+**Full graph summary** (no `--entity`):
+
+```
+graph: 42 entities, 87 references
+
+  src/auth/login.ts
+    function  validateToken    L4–18    (→2 ←5)
+    function  authenticateUser L20–45   (→3 ←1)
+    class     AuthService      L47–120  (→6 ←0)
+
+  src/middleware/jwt.ts
+    function  verifyJwt        L1–22    (→1 ←3)
+    function  signJwt          L24–40   (→0 ←2)
+```
+
+`→N` is the number of outbound dependencies (what this entity calls). `←N` is the number of inbound dependents (what calls this entity).
+
+**Entity focus** (`--entity validateToken`):
+
+```
+⊕ function validateToken (src/auth/login.ts:4–18)
+  → depends on:
+    → function verifyJwt
+    → function hashPassword
+  ← depended on by:
+    ← function authenticateUser
+    ← function refreshSession
+  ! impact: 5 entities transitively affected
+    ! function  authenticateUser  (src/auth/login.ts)
+    ! function  refreshSession    (src/session.ts)
+    ! function  handleRequest     (src/server.ts)
+```
+
+## JSON output
+
+<Tabs>
+  <Tab title="Full graph">
+    ```bash
+    sem graph --format json
+    ```
+
+    ```json
+    {
+      "entities": 42,
+      "edges": 87,
+      "graph": [
+        {
+          "from": "src/auth/login.ts::function::validateToken",
+          "to": "src/middleware/jwt.ts::function::verifyJwt",
+          "type": "Calls"
+        },
+        {
+          "from": "src/auth/login.ts::function::validateToken",
+          "to": "src/utils/crypto.ts::function::hashPassword",
+          "type": "Calls"
+        }
+      ]
+    }
+    ```
+  </Tab>
+  <Tab title="Entity focus">
+    ```bash
+    sem graph --entity validateToken --format json
+    ```
+
+    ```json
+    {
+      "results": [
+        {
+          "id": "src/auth/login.ts::function::validateToken",
+          "name": "validateToken",
+          "type": "function",
+          "file": "src/auth/login.ts",
+          "lines": [4, 18],
+          "dependencies": [
+            {
+              "id": "src/middleware/jwt.ts::function::verifyJwt",
+              "name": "verifyJwt",
+              "type": "function",
+              "file": "src/middleware/jwt.ts"
+            }
+          ],
+          "dependents": [
+            {
+              "id": "src/auth/login.ts::function::authenticateUser",
+              "name": "authenticateUser",
+              "type": "function",
+              "file": "src/auth/login.ts"
+            }
+          ],
+          "impact": [
+            {
+              "id": "src/auth/login.ts::function::authenticateUser",
+              "name": "authenticateUser",
+              "type": "function",
+              "file": "src/auth/login.ts"
+            },
+            {
+              "id": "src/server.ts::function::handleRequest",
+              "name": "handleRequest",
+              "type": "function",
+              "file": "src/server.ts"
+            }
+          ]
+        }
+      ]
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  The `impact` array in entity-focus mode is the same BFS transitive impact set computed by `sem impact`. Use `sem graph --entity <name> --format json` when you want dependency details and impact in a single call.
+</Tip>

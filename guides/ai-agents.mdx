@@ -1,0 +1,109 @@
+---
+title: "AI agents"
+description: "Feed structured entity diffs to LLM-based code review and analysis tools"
+---
+
+AI tools work better with semantic context than with raw line diffs. Instead of a wall of `+/-` lines, sem gives AI agents a structured list of exactly which functions were added, modified, or deleted — with entity IDs, types, and file paths.
+
+## Why entity diffs are better for AI
+
+Line-level diffs include noise: whitespace changes, comment edits, reformatting. Entity-level diffs cut straight to what changed semantically. A language model reviewing `validateToken [modified]` can reason about intent and impact far more effectively than parsing 40 lines of unified diff.
+
+## JSON output mode
+
+Use `--format json` to get machine-readable output:
+
+```bash
+sem diff --format json
+```
+
+```json
+{
+  "summary": {
+    "fileCount": 2,
+    "added": 1,
+    "modified": 1,
+    "deleted": 1,
+    "total": 3
+  },
+  "changes": [
+    {
+      "entityId": "src/auth.ts::function::validateToken",
+      "changeType": "added",
+      "entityType": "function",
+      "entityName": "validateToken",
+      "filePath": "src/auth.ts"
+    },
+    {
+      "entityId": "src/auth.ts::function::authenticateUser",
+      "changeType": "modified",
+      "entityType": "function",
+      "entityName": "authenticateUser",
+      "filePath": "src/auth.ts"
+    }
+  ]
+}
+```
+
+The `entityId` format is `filePath::entityType::entityName` — stable enough to reference in prompts and downstream tools.
+
+## Stdin mode (no git repo required)
+
+You can feed file contents directly without needing a git repository. This is useful when an AI agent already has the before/after content in memory:
+
+```bash
+echo '[
+  {
+    "filePath": "src/main.rs",
+    "status": "modified",
+    "beforeContent": "fn hello() { println!(\"hi\"); }",
+    "afterContent": "fn hello() { println!(\"hello world\"); }"
+  }
+]' | sem diff --stdin --format json
+```
+
+The input is a JSON array of objects with `filePath`, `status` (`added`, `modified`, `deleted`), `beforeContent`, and `afterContent`.
+
+## Combining commands for full context
+
+For richer AI analysis, combine `sem diff` with `sem impact` and `sem graph`:
+
+```bash
+# What changed?
+sem diff --format json
+
+# For each modified entity, what else might break?
+sem impact validateToken --json
+
+# Full dependency context
+sem graph --entity validateToken --format json
+```
+
+This gives an AI agent three levels of context: the change itself, its transitive impact, and the full call graph around the modified entity.
+
+## Filtering by language
+
+When working in a polyglot repo, focus the AI on the relevant language:
+
+```bash
+sem diff --format json --file-exts .py
+sem diff --format json --file-exts .ts .tsx
+```
+
+<Note>
+sem is used by [weave](https://github.com/Ataraxy-Labs/weave) (semantic merge driver) and [inspect](https://github.com/Ataraxy-Labs/inspect) (entity-level code review) — both tools that feed sem output to automated analysis pipelines.
+</Note>
+
+## Example: AI code review prompt
+
+A minimal pattern for using sem output in an AI review:
+
+```bash
+#!/bin/bash
+DIFF=$(sem diff --format json)
+echo "Review the following semantic changes and identify risks:" > prompt.txt
+echo "$DIFF" >> prompt.txt
+# Pass prompt.txt to your LLM of choice
+```
+
+Because the JSON is compact and structured, it fits cleanly into a context window even for large PRs.

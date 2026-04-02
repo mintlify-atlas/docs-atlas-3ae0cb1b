@@ -1,0 +1,112 @@
+---
+title: "sem blame"
+description: "Entity-level blame showing who last modified each function or class"
+---
+
+`sem blame` shows who last modified each function, class, or method in a file — not each line. Where `git blame` assigns authorship line by line, `sem blame` scans the entity's entire line range and attributes the entity to the most recent commit that touched any of those lines.
+
+This answers the question "who owns this function?" rather than "who wrote this particular line?"
+
+## Usage
+
+<CodeGroup>
+
+```bash Terminal output
+sem blame src/auth.ts
+```
+
+```bash JSON output
+sem blame src/auth.ts --json
+```
+
+</CodeGroup>
+
+## Flags
+
+<ParamField path="file" type="string" required>
+  Path to the file to blame, relative to the current working directory. The file must be of a supported type (see [language support](/languages/overview)).
+
+  ```bash
+  sem blame src/auth.ts
+  sem blame lib/utils/parser.py
+  ```
+</ParamField>
+
+<ParamField path="--json" type="boolean" default="false">
+  Output blame results as a JSON array instead of the terminal table. Each element contains the entity name, type, line range, author, date, short commit SHA, and commit summary.
+</ParamField>
+
+## Terminal output
+
+For each entity in the file, sem blame prints the entity type, name, the short SHA of the most recent commit to touch it, the author, the date, and a truncated commit summary:
+
+```
+┌─ src/auth/login.ts
+│
+│  function  validateToken     a3f2c1d  Alice Chen   2025-11-14  add JWT expiry check
+│  function  authenticateUser  b8e901a  Bob Smith    2025-10-02  fix session race condition
+│  function  legacyAuth        c4d72ff  Alice Chen   2025-08-19  migrate to new auth flow
+│  class     AuthService       b8e901a  Bob Smith    2025-10-02  fix session race condition
+│    method  login             f1a309e  Carol Wu     2025-11-30  support OAuth2 login
+│    method  logout            b8e901a  Bob Smith    2025-10-02  fix session race condition
+│
+└────────────────────────────────────────────────────────────
+```
+
+Methods and nested entities are indented under their parent class.
+
+## JSON output
+
+<Tabs>
+  <Tab title="Command">
+    ```bash
+    sem blame src/auth/login.ts --json
+    ```
+  </Tab>
+  <Tab title="Output">
+    ```json
+    [
+      {
+        "name": "validateToken",
+        "type": "function",
+        "lines": [4, 18],
+        "author": "Alice Chen",
+        "date": "2025-11-14",
+        "commit": "a3f2c1d",
+        "summary": "add JWT expiry check"
+      },
+      {
+        "name": "authenticateUser",
+        "type": "function",
+        "lines": [20, 45],
+        "author": "Bob Smith",
+        "date": "2025-10-02",
+        "commit": "b8e901a",
+        "summary": "fix session race condition"
+      },
+      {
+        "name": "AuthService",
+        "type": "class",
+        "lines": [47, 120],
+        "author": "Bob Smith",
+        "date": "2025-10-02",
+        "commit": "b8e901a",
+        "summary": "fix session race condition"
+      },
+      {
+        "name": "login",
+        "type": "method",
+        "lines": [52, 89],
+        "author": "Carol Wu",
+        "date": "2025-11-30",
+        "commit": "f1a309e",
+        "summary": "support OAuth2 login"
+      }
+    ]
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Attribution is determined by finding the most recent commit (by timestamp) that touched any line within the entity's start–end line range. If multiple commits touched different lines, the newest one wins.
+</Note>

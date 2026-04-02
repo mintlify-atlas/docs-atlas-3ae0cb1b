@@ -1,0 +1,200 @@
+---
+title: "sem log"
+description: "Evolution of an entity through git history"
+---
+
+`sem log` traces a single function, class, or method through git history. It scans commits that touched the file, extracts the entity at each revision, and reports only the commits where the entity itself changed — filtering out commits that modified other parts of the file but left the entity untouched.
+
+Each entry is classified as `added`, `modified (logic)`, `modified (cosmetic)`, or `deleted`. The logic/cosmetic distinction uses the same structural hashing as `sem diff`: cosmetic changes are whitespace and formatting only, logic changes are everything else.
+
+## Usage
+
+<CodeGroup>
+
+```bash Trace an entity through history
+sem log validateToken
+```
+
+```bash Specify the file explicitly
+sem log validateToken --file src/auth.ts
+```
+
+```bash Limit commits scanned
+sem log validateToken --limit 100
+```
+
+```bash JSON output
+sem log validateToken --json
+```
+
+```bash Verbose — show content diffs between versions
+sem log validateToken --verbose
+sem log validateToken -v
+```
+
+```bash Combine flags
+sem log validateToken --file src/auth.ts --limit 20 --json --verbose
+```
+
+</CodeGroup>
+
+## Flags
+
+<ParamField path="entity" type="string" required>
+  The name of the entity to trace. This is a positional argument.
+
+  ```bash
+  sem log validateToken
+  sem log AuthService
+  sem log parse_config
+  ```
+
+  If the entity name exists in multiple files, sem will report an error and list the ambiguous files. Use `--file` to disambiguate.
+</ParamField>
+
+<ParamField path="--file" type="string">
+  Path to the file containing the entity, relative to the current directory. When omitted, sem auto-detects the file by scanning all supported files in the repository.
+
+  ```bash
+  sem log validateToken --file src/auth/login.ts
+  ```
+
+  Auto-detection scans every supported file in the repo and is slower for large repositories. Provide `--file` when you know the location.
+</ParamField>
+
+<ParamField path="--limit" type="number" default="50">
+  Maximum number of commits to scan in the file's history. Scanning stops after this many commits regardless of how many entity changes were found.
+
+  ```bash
+  sem log validateToken --limit 100
+  sem log validateToken --limit 10   # quick recent history
+  ```
+</ParamField>
+
+<ParamField path="--json" type="boolean" default="false">
+  Output the log as a JSON object. Includes entity metadata and an array of change entries, each with commit info and change classification.
+</ParamField>
+
+<ParamField path="--verbose / -v" type="boolean" default="false">
+  Show a unified diff of the entity body for each change entry. For added entries, the full initial content is shown. For modified entries, removed lines are prefixed with `-` and added lines with `+`. For deleted entries, the final content before deletion is shown with `-` prefixes.
+
+  In JSON mode, verbose adds `before_content` and `after_content` fields to each change entry.
+</ParamField>
+
+## Terminal output
+
+```
+┌─ src/auth/login.ts :: function :: validateToken
+│
+│  a3f2c1d  Alice Chen   2025-08-04  added              initial token validation
+│  b8e901a  Bob Smith    2025-09-12  modified (logic)   add expiry check
+│  c4d72ff  Alice Chen   2025-10-28  modified (cosmetic) reformat to match style guide
+│  f1a309e  Carol Wu     2025-11-30  modified (logic)   support refresh tokens
+│
+│  3 changes across 47 commits (first seen: 2025-08-04)
+└────────────────────────────────────────────────────────────
+```
+
+**With `--verbose`**, each modified entry includes the diff:
+
+```
+┌─ src/auth/login.ts :: function :: validateToken
+│
+│  b8e901a  Bob Smith  2025-09-12  modified (logic)  add expiry check
+│    - function validateToken(token) {
+│    -   return token != null;
+│    - }
+│    + function validateToken(token, opts = {}) {
+│    +   if (!token) return false;
+│    +   if (opts.checkExpiry && isExpired(token)) return false;
+│    +   return true;
+│    + }
+│
+└────────────────────────────────────────────────────────────
+```
+
+## JSON output
+
+<Tabs>
+  <Tab title="Command">
+    ```bash
+    sem log validateToken --json
+    ```
+  </Tab>
+  <Tab title="Output">
+    ```json
+    {
+      "entity": "validateToken",
+      "file": "src/auth/login.ts",
+      "type": "function",
+      "changes": [
+        {
+          "commit": {
+            "sha": "a3f2c1d",
+            "author": "Alice Chen",
+            "date": "2025-08-04",
+            "message": "initial token validation"
+          },
+          "change_type": "added",
+          "structural_change": true
+        },
+        {
+          "commit": {
+            "sha": "b8e901a",
+            "author": "Bob Smith",
+            "date": "2025-09-12",
+            "message": "add expiry check"
+          },
+          "change_type": "modified (logic)",
+          "structural_change": true
+        },
+        {
+          "commit": {
+            "sha": "c4d72ff",
+            "author": "Alice Chen",
+            "date": "2025-10-28",
+            "message": "reformat to match style guide"
+          },
+          "change_type": "modified (cosmetic)",
+          "structural_change": false
+        }
+      ]
+    }
+    ```
+  </Tab>
+  <Tab title="Verbose JSON">
+    ```bash
+    sem log validateToken --json --verbose
+    ```
+
+    ```json
+    {
+      "entity": "validateToken",
+      "file": "src/auth/login.ts",
+      "type": "function",
+      "changes": [
+        {
+          "commit": {
+            "sha": "b8e901a",
+            "author": "Bob Smith",
+            "date": "2025-09-12",
+            "message": "add expiry check"
+          },
+          "change_type": "modified (logic)",
+          "structural_change": true,
+          "before_content": "function validateToken(token) {\n  return token != null;\n}",
+          "after_content": "function validateToken(token, opts = {}) {\n  if (!token) return false;\n  if (opts.checkExpiry && isExpired(token)) return false;\n  return true;\n}"
+        }
+      ]
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  `sem log` only reports commits where the entity's content actually changed. Commits that touched other functions in the same file but left this entity identical are silently skipped. This keeps the output focused on the entity's own history.
+</Note>
+
+<Tip>
+  If `--file` is omitted and the entity name is common (e.g., `render`, `init`, `main`), auto-detection may find it in multiple files and exit with an error listing the candidates. Always pass `--file` for common names to avoid the scan overhead and ambiguity.
+</Tip>

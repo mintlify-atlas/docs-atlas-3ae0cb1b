@@ -1,0 +1,66 @@
+---
+title: "Language support"
+description: "21 programming languages and 5 structured data formats supported via tree-sitter"
+---
+
+sem uses [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars to parse source code natively in Rust — not WASM. Each supported language has a compiled grammar crate linked directly into `sem-core`, which means parsing is fast and has no runtime dependencies.
+
+When sem encounters a file, it matches the file extension against the registered language configs and dispatches to the appropriate grammar. Unrecognized extensions fall back to chunk-based diffing.
+
+## Programming languages
+
+21 languages with full entity extraction:
+
+| Language | Extensions | Entities |
+|----------|-----------|----------|
+| TypeScript | `.ts` `.tsx` | functions, classes, interfaces, types, enums, exports |
+| JavaScript | `.js` `.jsx` `.mjs` `.cjs` | functions, classes, variables, exports |
+| Python | `.py` | functions, classes, decorated definitions |
+| Go | `.go` | functions, methods, types, vars, consts |
+| Rust | `.rs` | functions, structs, enums, impls, traits, mods, consts |
+| Java | `.java` | classes, methods, interfaces, enums, fields, constructors |
+| C | `.c` `.h` | functions, structs, enums, unions, typedefs |
+| C++ | `.cpp` `.cc` `.hpp` | functions, classes, structs, enums, namespaces, templates |
+| C# | `.cs` | classes, methods, interfaces, enums, structs, properties |
+| Ruby | `.rb` | methods, classes, modules |
+| PHP | `.php` | functions, classes, methods, interfaces, traits, enums |
+| Swift | `.swift` | functions, classes, protocols, structs, enums, properties |
+| Elixir | `.ex` `.exs` | modules, functions, macros, guards, protocols |
+| Bash | `.sh` | functions |
+| HCL/Terraform | `.hcl` `.tf` `.tfvars` | blocks, attributes (qualified names for nested blocks) |
+| Kotlin | `.kt` `.kts` | classes, interfaces, objects, functions, properties, companion objects |
+| Fortran | `.f90` `.f95` `.f` | functions, subroutines, modules, programs |
+| Vue | `.vue` | template/script/style blocks + inner TS/JS entities |
+| XML | `.xml` `.plist` `.svg` `.csproj` | elements (nested, tag-name identity) |
+| ERB | `.erb` `.html.erb` | blocks, expressions, code tags |
+| Svelte | `.svelte` `.svelte.js` `.svelte.ts` | component blocks + rune JS/TS modules |
+
+## Structured data formats
+
+5 formats with path-based entity tracking:
+
+| Format | Extensions | Entities |
+|--------|-----------|----------|
+| JSON | `.json` | properties, objects (RFC 6901 paths) |
+| YAML | `.yml` `.yaml` | sections, properties (dot paths) |
+| TOML | `.toml` | sections, properties |
+| CSV | `.csv` `.tsv` | rows (first column as identity) |
+| Markdown | `.md` `.mdx` | heading-based sections |
+
+## Fallback behavior
+
+Everything else — binary files, unknown text formats, unsupported extensions — falls back to chunk-based diffing. Chunks are compared as contiguous blocks of changed lines, similar to a standard unified diff but grouped into logical segments.
+
+## Filtering by extension
+
+To restrict a diff to specific file types, use `--file-exts`:
+
+```bash
+sem diff --file-exts .py .rs
+```
+
+You can pass any number of extensions. Only files matching those extensions will be processed; everything else is skipped entirely (not even diffed as chunks).
+
+## Adding a new language
+
+sem's language support is built on a plugin system. Each language is a `LanguageConfig` struct with a list of AST node types to extract. If a language you need isn't listed above, see [Adding a language](/languages/adding-a-language) for a step-by-step guide.

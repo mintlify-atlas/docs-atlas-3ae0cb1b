@@ -1,0 +1,122 @@
+---
+title: "Git integration"
+description: "Use sem as your default git diff tool"
+---
+
+`sem diff` works in any Git repo with no configuration. Run it instead of `git diff` to see entity-level changes. You can also configure Git to route all diff output through `sem` automatically — every tool that calls `git diff` will then receive semantic output without any changes to prompts or commands.
+
+## Set sem as your default git diff tool
+
+<Steps>
+  <Step title="Register the external diff driver">
+    Tell Git to use a wrapper script for all diff operations:
+
+    ```bash
+    git config --global diff.external sem-diff-wrapper
+    ```
+  </Step>
+
+  <Step title="Create the wrapper script">
+    Write the script that Git will call. Git passes the old and new file paths as arguments `$2` and `$5`:
+
+    ```bash
+    echo '#!/bin/sh
+    sem diff "$2" "$5"' > ~/.local/bin/sem-diff-wrapper
+    chmod +x ~/.local/bin/sem-diff-wrapper
+    ```
+  </Step>
+
+  <Step title="Verify the setup">
+    Make a change to any tracked file and run:
+
+    ```bash
+    git diff
+    ```
+
+    You should see entity-level output instead of line hunks:
+
+    ```
+    ┌─ src/auth/login.ts ──────────────────────────────────
+    │
+    │  ⊕ function  validateToken          [added]
+    │  ∆ function  authenticateUser       [modified]
+    │  ⊖ function  legacyAuth             [deleted]
+    │
+    └──────────────────────────────────────────────────────
+
+    Summary: 1 added, 1 modified, 1 deleted across 1 file
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  No agent configuration is needed. Any tool, script, or AI agent that already calls `git diff` will receive sem output automatically. Nothing else needs to change.
+</Note>
+
+## How it works
+
+Git's `diff.external` setting redirects diff calls to an external program. When Git runs a diff, it calls your wrapper script with seven positional arguments. The wrapper passes arguments `$2` (old file path) and `$5` (new file path) to `sem diff`, which compares the two files and prints the entity-level result.
+
+This means `git diff`, `git show`, `git log -p`, and any other command that triggers file diffs will all use sem output.
+
+## Reverting to standard git diff
+
+<Warning>
+  This change is global and affects all repositories on your machine. To restore the default `git diff` behavior, run:
+
+  ```bash
+  git config --global --unset diff.external
+  ```
+
+  To disable it for a single repository only (without affecting the global config):
+
+  ```bash
+  git config --unset diff.external
+  ```
+</Warning>
+
+## Comparing arbitrary files (no git repo needed)
+
+`sem diff` can compare any two files directly, without a Git repository:
+
+```bash
+sem diff file1.ts file2.ts
+```
+
+This is useful for comparing build artifacts, config file versions, or any two files that are not tracked by Git.
+
+```bash
+# Compare two versions of a config file
+sem diff config.prod.yml config.staging.yml
+
+# Compare a generated file against a baseline
+sem diff baseline/api.ts generated/api.ts
+```
+
+## Stdin mode for programmatic usage
+
+When you already have file content in memory — for example, from an API response, a database record, or a pre-computed diff — you can feed it directly to `sem diff` via stdin instead of writing temporary files to disk.
+
+The input is a JSON array of file change objects:
+
+```bash
+echo '[
+  {
+    "filePath": "src/main.rs",
+    "status": "modified",
+    "beforeContent": "fn main() { println!(\"v1\"); }",
+    "afterContent": "fn main() { println!(\"v2\"); }"
+  }
+]' | sem diff --stdin --format json
+```
+
+Each object in the array requires:
+
+| Field           | Type   | Description                               |
+| --------------- | ------ | ----------------------------------------- |
+| `filePath`      | string | Path used for display and language detection |
+| `status`        | string | `"added"`, `"modified"`, or `"deleted"`   |
+| `beforeContent` | string | File content before the change            |
+| `afterContent`  | string | File content after the change             |
+
+Combine `--stdin` with any output format flag (`--format json`, `--format plain`, `--format markdown`) to integrate with downstream tools.

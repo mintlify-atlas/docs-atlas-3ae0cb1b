@@ -1,0 +1,169 @@
+---
+title: "Library usage"
+description: "Use sem-core as a Rust library dependency"
+---
+
+`sem-core` is the library crate that powers the `sem` CLI. It is published independently and can be used directly in Rust projects that need entity-level semantic diff, entity extraction, or dependency graph analysis.
+
+## Adding sem-core to your project
+
+Add the following to your `Cargo.toml`:
+
+```toml
+[dependencies]
+sem-core = { git = "https://github.com/Ataraxy-Labs/sem", version = "0.3" }
+```
+
+- **Current version:** 0.3.12
+- **License:** MIT OR Apache-2.0
+- **Repository:** https://github.com/Ataraxy-Labs/sem
+
+## Public modules
+
+`sem-core` exposes four public modules:
+
+```rust
+pub mod model;   // Core types: SemanticEntity, SemanticChange, ChangeType
+pub mod git;     // Git integration via git2
+pub mod parser;  // Language parser plugins and entity extraction
+pub mod utils;   // Internal utilities
+```
+
+## Core types
+
+### `SemanticEntity`
+
+Represents a single extracted code entity (function, class, method, etc.):
+
+```rust
+pub struct SemanticEntity {
+    pub id: String,
+    pub file_path: String,
+    pub entity_type: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub content: String,
+    pub content_hash: String,
+    /// AST-based hash that strips comments and normalizes whitespace.
+    /// Two entities with the same structural_hash are logically identical
+    /// even if formatting/comments differ.
+    pub structural_hash: Option<String>,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub metadata: Option<HashMap<String, String>>,
+}
+```
+
+The `id` field follows the format `filePath::entityType::entityName` (or `filePath::parentName::entityName` for nested entities). See [How matching works](/reference/how-matching-works) for details on entity identity.
+
+### `SemanticChange`
+
+Represents a detected change between two versions of an entity:
+
+```rust
+pub struct SemanticChange {
+    pub id: String,
+    pub entity_id: String,
+    pub change_type: ChangeType,
+    pub entity_type: String,
+    pub entity_name: String,
+    pub file_path: String,
+    pub old_file_path: Option<String>,
+    pub before_content: Option<String>,
+    pub after_content: Option<String>,
+    pub commit_sha: Option<String>,
+    pub author: Option<String>,
+    pub timestamp: Option<String>,
+    /// Whether the AST structure changed (true) or only formatting/comments (false).
+    /// None when structural hash is unavailable.
+    pub structural_change: Option<bool>,
+}
+```
+
+The `old_file_path` field is populated for `moved` entities. `before_content` and `after_content` are available when verbose mode is enabled.
+
+### `ChangeType`
+
+```rust
+pub enum ChangeType {
+    Added,
+    Modified,
+    Deleted,
+    Moved,
+    Renamed,
+}
+```
+
+All variants serialize to lowercase strings (`"added"`, `"modified"`, etc.) in JSON output.
+
+## Example
+
+The following example shows the basic pattern for computing a semantic diff using the real public API:
+
+```rust
+use sem_core::git::types::{FileChange, FileStatus};
+use sem_core::parser::differ::compute_semantic_diff;
+use sem_core::parser::plugins::create_default_registry;
+
+fn main() {
+    let before = std::fs::read_to_string("src/auth.ts.before").unwrap();
+    let after  = std::fs::read_to_string("src/auth.ts").unwrap();
+
+    // Build the registry of all language/format parsers
+    let registry = create_default_registry();
+
+    // Describe the file change
+    let changes = vec![FileChange {
+        file_path: "src/auth.ts".to_string(),
+        status: FileStatus::Modified,
+        old_file_path: None,
+        before_content: Some(before),
+        after_content: Some(after),
+    }];
+
+    // Compute the semantic diff
+    let result = compute_semantic_diff(&changes, &registry, None, None);
+
+    for change in &result.changes {
+        println!(
+            "{:?} {} ({})",
+            change.change_type,
+            change.entity_name,
+            change.entity_type
+        );
+    }
+}
+```
+
+<Note>
+  The exact public API surface of `sem-core` may evolve between 0.3.x releases. Pin to a specific git commit if you need stability beyond the semver range.
+</Note>
+
+## Projects using sem-core
+
+<CardGroup cols={2}>
+  <Card title="weave" icon="code-merge" href="https://github.com/Ataraxy-Labs/weave">
+    Semantic merge driver. Uses sem-core to understand what entities changed during a merge conflict and resolve them at the entity level rather than the line level.
+  </Card>
+  <Card title="inspect" icon="magnifying-glass" href="https://github.com/Ataraxy-Labs/inspect">
+    Entity-level code review tool. Uses sem-core to extract changed entities from a pull request and surface them for review with structural context.
+  </Card>
+</CardGroup>
+
+## Dependency footprint
+
+`sem-core` brings in tree-sitter grammars for all 21 supported languages, compiled directly into the binary. There is no WASM loading or dynamic grammar discovery at runtime. The full dependency list includes:
+
+| Dependency | Purpose |
+|------------|---------|
+| `tree-sitter` 0.26 | AST parsing infrastructure |
+| `git2` 0.20 | In-process Git operations |
+| `rayon` 1.10 | Parallel file processing |
+| `xxhash-rust` 0.8 (xxh3) | Structural hashing |
+| `serde` + `serde_json` | Serialization |
+| `serde_yaml` 0.9 | YAML parsing |
+| `toml` 0.8 | TOML parsing |
+| `thiserror` 2 | Error types |
+| `regex` 1 | Pattern matching |
+
+21 `tree-sitter-*` language grammar crates are also included as direct dependencies.

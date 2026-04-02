@@ -1,0 +1,178 @@
+---
+title: "CI pipelines"
+description: "Integrate semantic change detection into GitHub Actions and CI systems"
+---
+
+Line-level diffs require a human to read and interpret them. `sem diff --format json` produces machine-readable, structured output that CI scripts and downstream tools can parse directly — no text processing needed.
+
+Use `sem` in CI to:
+- Report which functions and classes changed in a pull request
+- Block merges when high-impact entities are modified
+- Annotate PRs with structured entity-change summaries
+- Feed change context to LLM-based code review tools
+
+## JSON output
+
+The `--format json` flag emits a structured payload with a summary and a flat list of changed entities:
+
+```bash
+sem diff --format json
+```
+
+```json
+{
+  "summary": {
+    "fileCount": 2,
+    "added": 1,
+    "modified": 1,
+    "deleted": 1,
+    "total": 3
+  },
+  "changes": [
+    {
+      "entityId": "src/auth.ts::function::validateToken",
+      "changeType": "added",
+      "entityType": "function",
+      "entityName": "validateToken",
+      "filePath": "src/auth.ts"
+    }
+  ]
+}
+```
+
+<Tip>
+  Pipe the JSON output to a script that calls the GitHub API to post inline PR annotations. Each `entityId` contains the file path and entity name, giving you everything needed to create a targeted review comment.
+</Tip>
+
+## Performance
+
+`sem` is fast enough for even large PRs without adding meaningful CI latency:
+
+| Diff size              | Time  |
+| ---------------------- | ----- |
+| Small commit (1 file)  | 5ms   |
+| Medium commit (5 files)| 8ms   |
+| Large commit (13 files)| 19ms  |
+| Range (8 commits, 30 files) | 24ms |
+
+## GitHub Actions example
+
+This workflow runs on every pull request, computes a semantic diff between the PR branch and the base branch, and saves the JSON output as a step output for use by subsequent steps.
+
+```yaml
+name: Semantic diff
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  sem-diff:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install sem
+        run: |
+          curl -fsSL https://github.com/Ataraxy-Labs/sem/releases/latest/download/sem-linux-x86_64.tar.gz \
+            | tar -xz -C /usr/local/bin
+
+      - name: Run semantic diff
+        id: sem
+        run: |
+          sem diff --from origin/${{ github.base_ref }} --to HEAD --format json > sem-diff.json
+          echo "result=$(cat sem-diff.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload diff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sem-diff
+          path: sem-diff.json
+```
+
+## Using `--from` and `--to` for PR diff ranges
+
+To diff a specific commit range — such as a PR's base to its tip — use `--from` and `--to`:
+
+```bash
+# Diff between the base branch and the current HEAD
+sem diff --from origin/main --to HEAD --format json
+
+# Diff a specific range
+sem diff --from HEAD~5 --to HEAD --format json
+
+# Diff a specific commit
+sem diff --commit abc1234 --format json
+```
+
+In GitHub Actions, `github.base_ref` gives you the target branch of the PR:
+
+```bash
+sem diff --from origin/${{ github.base_ref }} --to HEAD --format json
+```
+
+## Filtering by language
+
+Use `--file-exts` to restrict the diff to specific file types. This is useful when you want to run checks only on application code and skip generated files, lock files, or other formats:
+
+```bash
+# Only TypeScript and JavaScript files
+sem diff --format json --file-exts .ts .tsx .js .jsx
+
+# Only Python files
+sem diff --format json --file-exts .py
+
+# Only Rust files
+sem diff --format json --file-exts .rs
+```
+
+## Parsing JSON output in a shell script
+
+Use `jq` to extract specific fields from the sem JSON output:
+
+```bash
+#!/bin/sh
+
+# Run sem and capture output
+DIFF=$(sem diff --from origin/main --to HEAD --format json)
+
+# Count total changed entities
+TOTAL=$(echo "$DIFF" | jq '.summary.total')
+
+# List all modified function names
+MODIFIED=$(echo "$DIFF" | jq -r '.changes[] | select(.changeType == "modified") | .entityName')
+
+# List all added entities
+ADDED=$(echo "$DIFF" | jq -r '.changes[] | select(.changeType == "added") | .entityId')
+
+echo "Total changes: $TOTAL"
+echo "Modified functions:"
+echo "$MODIFIED"
+
+# Fail the build if a critical function was modified
+if echo "$DIFF" | jq -e '.changes[] | select(.entityName == "validateToken")' > /dev/null; then
+  echo "WARNING: validateToken was modified — review required"
+  exit 1
+fi
+```
+
+## Stdin mode in CI
+
+If your CI system has already fetched file content (for example, from a code review API or an artifact store), pass it directly via stdin to avoid writing temporary files:
+
+```bash
+echo '[
+  {
+    "filePath": "src/auth.ts",
+    "status": "modified",
+    "beforeContent": "...",
+    "afterContent": "..."
+  }
+]' | sem diff --stdin --format json
+```
+
+This is also useful in containerized pipelines where filesystem access is restricted.

@@ -1,0 +1,240 @@
+---
+title: "sem diff"
+description: "Entity-level diff showing which functions, classes, and methods changed"
+---
+
+`sem diff` replaces line-level diffs with entity-level diffs. Instead of showing which lines changed, it shows which functions, classes, methods, and types were added, modified, deleted, or renamed — and whether each change was structural (logic change) or cosmetic (whitespace, formatting).
+
+Run `sem diff` with no arguments in any Git repo and it behaves like `git diff`: comparing the working tree against the index. When no subcommand is given, `sem` defaults to `sem diff`.
+
+## Usage
+
+<CodeGroup>
+
+```bash Working tree changes
+sem diff
+```
+
+```bash Staged changes only
+sem diff --staged
+```
+
+```bash Specific commit
+sem diff --commit abc1234
+```
+
+```bash Commit range
+sem diff --from HEAD~5 --to HEAD
+```
+
+```bash Range syntax
+sem diff HEAD~3..HEAD
+```
+
+```bash Merge-base range
+sem diff main...feature-branch
+```
+
+```bash Compare two files (no git repo needed)
+sem diff file1.ts file2.ts
+```
+
+```bash Filter by file type
+sem diff --file-exts .py .rs
+```
+
+```bash JSON output
+sem diff --format json
+```
+
+```bash Markdown output
+sem diff --format markdown
+```
+
+```bash Plain (git-status style) output
+sem diff --format plain
+```
+
+```bash Verbose — show inline content diffs
+sem diff -v
+```
+
+```bash Read file changes from stdin
+echo '[{"filePath":"src/main.rs","status":"modified","beforeContent":"...","afterContent":"..."}]' \
+  | sem diff --stdin --format json
+```
+
+</CodeGroup>
+
+## Flags
+
+<ParamField path="args" type="string[]">
+  Positional git refs, files, or pathspecs. Supports the same syntax as `git diff`:
+  - `sem diff HEAD~3` — compare ref to working tree
+  - `sem diff HEAD~3..HEAD` — commit range (two-dot)
+  - `sem diff main...feature` — merge-base range (three-dot)
+  - `sem diff -- src/auth.ts` — pathspec filter
+  - `sem diff file1.ts file2.ts` — direct file comparison (no git required)
+</ParamField>
+
+<ParamField path="--staged" type="boolean" default="false">
+  Show only staged changes (the index vs HEAD). Alias: `--cached`. These two flags are equivalent.
+</ParamField>
+
+<ParamField path="--cached" type="boolean" default="false">
+  Alias for `--staged`. Show only staged changes.
+</ParamField>
+
+<ParamField path="--commit" type="string">
+  Show the changes introduced by a specific commit. Equivalent to `git show` but entity-level.
+
+  ```bash
+  sem diff --commit abc1234
+  ```
+</ParamField>
+
+<ParamField path="--from" type="string">
+  Start of a commit range. Must be used together with `--to`.
+
+  ```bash
+  sem diff --from HEAD~5 --to HEAD
+  ```
+</ParamField>
+
+<ParamField path="--to" type="string">
+  End of a commit range. Must be used together with `--from`.
+</ParamField>
+
+<ParamField path="--stdin" type="boolean" default="false">
+  Read a `FileChange[]` JSON array from stdin instead of running git. Enables use outside of a git repository — useful for CI pipelines, editor integrations, and AI agents that construct their own file change payloads.
+
+  The expected JSON schema per element:
+
+  ```json
+  {
+    "filePath": "src/auth.ts",
+    "status": "modified",
+    "beforeContent": "...",
+    "afterContent": "..."
+  }
+  ```
+</ParamField>
+
+<ParamField path="--format" type="string" default="terminal">
+  Output format. Accepted values:
+
+  | Value | Description |
+  |-------|-------------|
+  | `terminal` | Colored box-drawing output for humans (default) |
+  | `json` | Structured JSON for agents and CI pipelines |
+  | `plain` | `git status`-style compact text |
+  | `markdown` | Markdown tables |
+</ParamField>
+
+<ParamField path="--verbose / -v" type="boolean" default="false">
+  Show inline content diffs for each changed entity — a unified diff of the entity body below each entry. Works with all output formats.
+</ParamField>
+
+<ParamField path="--file-exts" type="string[]">
+  Restrict the diff to files with specific extensions. Pass one or more extensions with or without the leading dot.
+
+  ```bash
+  sem diff --file-exts .py .rs
+  sem diff --file-exts py rs   # leading dot is optional
+  ```
+</ParamField>
+
+## Terminal output
+
+```
+sem diff
+
+┌─ src/auth/login.ts ──────────────────────────────────
+│
+│  ⊕ function  validateToken          [added]
+│  ∆ function  authenticateUser       [modified]
+│  ⊖ function  legacyAuth             [deleted]
+│
+└──────────────────────────────────────────────────────
+
+┌─ config/database.yml ─────────────────────────────────
+│
+│  ∆ property  production.pool_size   [modified]
+│    - 5
+│    + 20
+│
+└──────────────────────────────────────────────────────
+
+Summary: 1 added, 1 modified, 1 deleted across 2 files
+```
+
+Symbols: `⊕` added, `∆` modified (logic change), `~` modified (cosmetic/formatting only), `⊖` deleted, `→` moved, `↻` renamed.
+
+## JSON output
+
+<Tabs>
+  <Tab title="Command">
+    ```bash
+    sem diff --format json
+    ```
+  </Tab>
+  <Tab title="Output">
+    ```json
+    {
+      "summary": {
+        "fileCount": 2,
+        "added": 1,
+        "modified": 1,
+        "deleted": 1,
+        "total": 3
+      },
+      "changes": [
+        {
+          "entityId": "src/auth.ts::function::validateToken",
+          "changeType": "added",
+          "entityType": "function",
+          "entityName": "validateToken",
+          "filePath": "src/auth.ts"
+        }
+      ]
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Comparing two files (no git required)
+
+`sem diff` can compare any two files on disk without a git repository. Pass two file paths as positional arguments:
+
+```bash
+sem diff old_version.ts new_version.ts
+```
+
+If both arguments also happen to be valid git refs in the current repository, sem prefers the git-ref interpretation. To force file comparison, ensure you're outside a git repo or that the paths don't resolve as refs.
+
+## Stdin mode
+
+Stdin mode lets tools and agents feed `FileChange[]` JSON directly to `sem diff` without needing git or disk files:
+
+```bash
+echo '[
+  {
+    "filePath": "src/auth.ts",
+    "status": "modified",
+    "beforeContent": "function validateToken(t) { return t; }",
+    "afterContent": "function validateToken(t, opts) { if (!t) throw new Error(); return t; }"
+  }
+]' | sem diff --stdin --format json
+```
+
+This is the primary integration path for editor plugins, AI agents, and CI systems that already have file contents in memory.
+
+## How entity matching works
+
+sem uses a three-phase matching algorithm to pair entities between the before and after snapshots:
+
+1. **Exact ID match** — same qualified name in both snapshots. Classified as modified or unchanged.
+2. **Structural hash match** — same AST-normalized structure, different name. Classified as renamed or moved. This ignores whitespace, comments, and formatting differences.
+3. **Fuzzy similarity** — more than 80% token overlap between unmatched entities. Classified as probable rename.
+
+This means sem detects renames and moves rather than reporting them as an unrelated deletion + addition. Structural hashing also distinguishes **cosmetic changes** (whitespace, formatting) from **structural changes** (logic).

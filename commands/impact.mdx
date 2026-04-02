@@ -1,0 +1,165 @@
+---
+title: "sem impact"
+description: "Transitive impact analysis — what else breaks if this entity changes?"
+---
+
+`sem impact` answers: "if I change this function, what else is affected?" It performs a breadth-first search through the entity dependency graph to find all entities that transitively depend on the given entity — directly or through any chain of calls.
+
+Use it before making a change to understand blast radius, or in CI to determine which tests to run based on which entities changed.
+
+## Usage
+
+<CodeGroup>
+
+```bash Terminal output
+sem impact validateToken
+```
+
+```bash JSON output
+sem impact validateToken --json
+```
+
+```bash Filter by file extension
+sem impact validateToken --file-exts .py
+```
+
+```bash Analyze specific files only
+sem impact validateToken --files src/auth.ts src/middleware.ts
+```
+
+</CodeGroup>
+
+## Flags
+
+<ParamField path="entity" type="string" required>
+  The name of the entity to analyze. This is a positional argument — pass it directly after `sem impact`.
+
+  ```bash
+  sem impact validateToken
+  sem impact AuthService
+  sem impact parse_config
+  ```
+
+  If the entity name exists in multiple files, sem will report an error and list the files. Use `--files` to narrow the scope.
+</ParamField>
+
+<ParamField path="--files" type="string[]">
+  Restrict analysis to specific files. When omitted, sem scans all supported files in the repository.
+
+  ```bash
+  sem impact validateToken --files src/auth.ts src/middleware.ts
+  ```
+</ParamField>
+
+<ParamField path="--json" type="boolean" default="false">
+  Output results as JSON. Includes the target entity's metadata, its direct dependencies, and the full transitive impact set with file paths and line ranges.
+</ParamField>
+
+<ParamField path="--file-exts" type="string[]">
+  Restrict graph analysis to files with specific extensions. Pass one or more extensions with or without the leading dot.
+
+  ```bash
+  sem impact validateToken --file-exts .ts .tsx
+  sem impact process_request --file-exts .py
+  ```
+</ParamField>
+
+## Terminal output
+
+```
+⊕ function validateToken (src/auth/login.ts:4–18)
+
+  → depends on:
+    → function verifyJwt     (src/middleware/jwt.ts)
+    → function hashPassword  (src/utils/crypto.ts)
+
+  ! 3 entities transitively affected:
+    src/auth/login.ts
+      ! function  authenticateUser  (L20–45)
+    src/server.ts
+      ! function  handleRequest     (L88–130)
+      ! function  processMiddleware (L12–40)
+```
+
+If no other entities are affected:
+
+```
+⊕ function hashPassword (src/utils/crypto.ts:1–15)
+
+  ✓ No other entities are affected by changes to this entity.
+```
+
+## JSON output
+
+<Tabs>
+  <Tab title="Command">
+    ```bash
+    sem impact validateToken --json
+    ```
+  </Tab>
+  <Tab title="Output">
+    ```json
+    {
+      "entity": {
+        "name": "validateToken",
+        "type": "function",
+        "file": "src/auth/login.ts",
+        "lines": [4, 18]
+      },
+      "dependencies": [
+        {
+          "name": "verifyJwt",
+          "type": "function",
+          "file": "src/middleware/jwt.ts",
+          "lines": [1, 22]
+        },
+        {
+          "name": "hashPassword",
+          "type": "function",
+          "file": "src/utils/crypto.ts",
+          "lines": [1, 15]
+        }
+      ],
+      "impact": {
+        "total": 3,
+        "entities": [
+          {
+            "name": "authenticateUser",
+            "type": "function",
+            "file": "src/auth/login.ts",
+            "lines": [20, 45]
+          },
+          {
+            "name": "handleRequest",
+            "type": "function",
+            "file": "src/server.ts",
+            "lines": [88, 130]
+          },
+          {
+            "name": "processMiddleware",
+            "type": "function",
+            "file": "src/server.ts",
+            "lines": [12, 40]
+          }
+        ]
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Pre-change impact assessment
+
+`sem impact` is most valuable as a pre-flight check before refactoring a shared utility:
+
+```bash
+# Before changing validateToken, see what depends on it
+sem impact validateToken
+
+# In CI: pipe the impact JSON to determine affected test files
+sem impact validateToken --json | jq '[.impact.entities[].file] | unique'
+```
+
+<Note>
+  The impact set is computed via BFS through the dependency graph. It includes **all** transitive dependents, not just direct callers. An entity with zero dependents reports a clean bill of health — it is safe to change in isolation.
+</Note>

@@ -1,0 +1,160 @@
+---
+title: "Output formats"
+description: "Terminal, JSON, plain text, and Markdown output modes for sem diff"
+---
+
+`sem diff` supports four output formats via the `--format` flag. The default is `terminal` (rich colored output). Use `json` for machine consumption, `plain` for simple text pipelines, and `markdown` for reports.
+
+## Formats overview
+
+<Tabs>
+  <Tab title="terminal (default)">
+    Rich output with box-drawing characters, symbols, and color. Best for human use in the terminal.
+
+    ```bash
+    sem diff
+    ```
+
+    ```
+    ┌─ src/auth/login.ts ──────────────────────────────────
+    │
+    │  ⊕ function  validateToken          [added]
+    │  ∆ function  authenticateUser       [modified]
+    │  ⊖ function  legacyAuth             [deleted]
+    │
+    └──────────────────────────────────────────────────────
+
+    Summary: 1 added, 1 modified, 1 deleted across 2 files
+    ```
+
+    Symbols: `⊕` added, `∆` modified (logic), `~` modified (cosmetic/formatting only), `⊖` deleted, `→` moved, `↻` renamed.
+  </Tab>
+  <Tab title="json">
+    Structured JSON with a summary object and a changes array. Ideal for CI pipelines, AI agents, and programmatic processing.
+
+    ```bash
+    sem diff --format json
+    ```
+
+    ```json
+    {
+      "summary": {
+        "fileCount": 2,
+        "added": 1,
+        "modified": 1,
+        "deleted": 1,
+        "moved": 0,
+        "renamed": 0,
+        "total": 3
+      },
+      "changes": [
+        {
+          "entityId": "src/auth.ts::function::validateToken",
+          "changeType": "added",
+          "entityType": "function",
+          "entityName": "validateToken",
+          "filePath": "src/auth.ts",
+          "oldFilePath": null,
+          "beforeContent": null,
+          "afterContent": null,
+          "commitSha": null,
+          "author": null
+        }
+      ]
+    }
+    ```
+  </Tab>
+  <Tab title="plain">
+    Git-status style plain text. One entity per line, machine-readable without JSON parsing.
+
+    ```bash
+    sem diff --format plain
+    ```
+
+    ```
+    A src/auth.ts::function::validateToken
+    M src/auth.ts::function::authenticateUser
+    D src/auth.ts::function::legacyAuth
+    ```
+
+    Status codes: `A` added, `M` modified, `D` deleted, `R` renamed, `>` moved.
+  </Tab>
+  <Tab title="markdown">
+    Markdown table output, useful for embedding in PRs, wikis, or reports.
+
+    ```bash
+    sem diff --format markdown
+    ```
+
+    ```markdown
+    | Entity | Type | Change | File |
+    |--------|------|--------|------|
+    | validateToken | function | added | src/auth.ts |
+    | authenticateUser | function | modified | src/auth.ts |
+    | legacyAuth | function | deleted | src/auth.ts |
+    ```
+  </Tab>
+</Tabs>
+
+## The `--verbose` flag
+
+Add `-v` or `--verbose` to any format to include inline content diffs for each changed entity:
+
+```bash
+sem diff --verbose
+sem diff --format json --verbose
+```
+
+In terminal mode this shows the actual before/after content of each modified entity. In JSON mode it adds `beforeContent` and `afterContent` fields to each change object.
+
+## JSON schema reference
+
+The JSON output has two top-level fields:
+
+**`summary`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fileCount` | number | Number of files with changes |
+| `added` | number | Entities added |
+| `modified` | number | Entities modified |
+| `deleted` | number | Entities deleted |
+| `moved` | number | Entities moved to a different file |
+| `renamed` | number | Entities renamed within the same file |
+| `total` | number | Total entity changes |
+
+**`changes[]`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `entityId` | string | Stable ID: `filePath::entityType::entityName` |
+| `changeType` | string | `added`, `modified`, `deleted`, `renamed`, `moved` |
+| `entityType` | string | `function`, `class`, `method`, `interface`, etc. |
+| `entityName` | string | Name of the entity |
+| `filePath` | string | Relative path to the file |
+| `oldFilePath` | string or null | For `moved` entities — the original file path before the move |
+| `beforeContent` | string or null | Entity content before the change (populated with `--verbose`) |
+| `afterContent` | string or null | Entity content after the change (populated with `--verbose`) |
+
+### Change types
+
+- **`added`** — entity exists in after but not before
+- **`modified`** — entity exists in both, content differs. When `structuralChange` is `false`, only whitespace or formatting changed; when `true`, logic changed
+- **`deleted`** — entity exists in before but not after
+- **`renamed`** — same structural hash or >80% token overlap, different name, same file
+- **`moved`** — same structural hash, different file
+
+<Tip>
+To filter for cosmetic-only changes in CI, select entities where `changeType == "modified"` and `structuralChange == false`.
+</Tip>
+
+## Selecting a format
+
+```bash
+sem diff --format terminal    # default, for humans
+sem diff --format json        # for CI, AI agents, scripts
+sem diff --format plain       # for simple grep/awk pipelines
+sem diff --format markdown    # for PR descriptions, wikis
+```
+
+The `--format` flag works with all ref modes: `--staged`, `--commit`, `--from`/`--to`, and file comparison.
